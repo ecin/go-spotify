@@ -6,8 +6,6 @@ import (
   "fmt"
   "io/ioutil"
   "net/http"
-  "net/url"
-  "strings"
 )
 
 // Third-party libraries
@@ -16,17 +14,19 @@ import (
 )
 
 const (
-  AUTHORIZATION_ENDPOINT = "https://accounts.spotify.com/authorize"
-  ACCESS_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token"
   PLAYLISTS_ENDPOINT = "https://api.spotify.com/v1/users/%s/playlists"
   PLAYLIST_TRACKS_ENDPOINT = "https://api.spotify.com/v1/users/%s/playlists/%s/tracks"
   USER_PROFILE_ENDPOINT = "https://api.spotify.com/v1/me"
 )
 
+var Endpoint = oauth2.Endpoint{
+  AuthURL: "https://accounts.spotify.com/authorize",
+  TokenURL: "https://accounts.spotify.com/api/token",
+}
+
 type SpotifyClient struct {
   credentials Credentials
-  redirectURL string
-  tokenResponse TokenResponse
+  client *http.Client
 }
 
 // TODO: verify these properties need to be public
@@ -97,11 +97,11 @@ func (credentials Credentials) getSignature() string {
    return signature
 }
 
-func AuthorizationURL(credentials Credentials, redirectURL string, scopes []string) string {
-  config := *oauth2.Config{
+func AuthorizationURL(credentials Credentials, redirectURL string, scopes []string, state string) string {
+  config := oauth2.Config{
     ClientID: credentials.Id,
     ClientSecret: credentials.Secret,
-    Endpoint: AUTHORIZATION_ENDPOINT,
+    Endpoint: Endpoint,
     RedirectURL: redirectURL,
     Scopes: scopes,
   }
@@ -120,65 +120,46 @@ func AuthorizationURL(credentials Credentials, redirectURL string, scopes []stri
 */
 }
 
-func NewSpotifyClientWithTokenResponse(credentials Credentials, redirectURL string, tokenResponse TokenResponse) SpotifyClient {
+func NewSpotifyClientWithCode(credentials Credentials, redirectURL string, code string) (*SpotifyClient, error) {
+  config := oauth2.Config{
+    ClientID: credentials.Id,
+    ClientSecret: credentials.Secret,
+    Endpoint: Endpoint,
+    RedirectURL: redirectURL,
+  }
+
+  token, err := config.Exchange(oauth2.NoContext, code)
+
+  if err != nil {
+    return nil, err
+  }
+
+  fmt.Printf("TOKEN TOKEN TOKEN\n")
+  fmt.Printf("%q", token)
+
+  client := &SpotifyClient{
+    credentials: credentials,
+    client: config.Client(oauth2.NoContext, token),
+  }
+
+  return client, nil
+}
+
+func NewSpotifyClientWithToken(credentials Credentials, token *oauth2.Token) SpotifyClient {
+  config := oauth2.Config{
+    ClientID: credentials.Id,
+    ClientSecret: credentials.Secret,
+    Endpoint: Endpoint,
+  }
+
   client := SpotifyClient{
     credentials: credentials,
-    redirectURL: redirectURL,
-    tokenResponse: tokenResponse,
+    client: config.Client(oauth2.NoContext, token),
   }
+
+  fmt.Printf("OAUTH TOKEN: %q\n", token)
 
   return client
-}
-
-func NewSpotifyClientWithCode(credentials Credentials, redirectURL string, code string) SpotifyClient {
-  client := SpotifyClient{
-    credentials: credentials,
-    redirectURL: redirectURL,
-    tokenResponse: TokenResponse{},
-  }
-
-  client.getAccessToken(code)
-  return client
-}
-
-func NewSpotifyClient(credentials Credentials, redirectURL string) SpotifyClient {
-  client := SpotifyClient{
-    credentials: credentials,
-    redirectURL: redirectURL,
-    tokenResponse: TokenResponse{},
-  }
-
-  return client
-}
-
-func (client *SpotifyClient) getAccessToken(code string) string {
-  if client.tokenResponse.AccessToken != "" {
-    return client.tokenResponse.AccessToken
-  } else {
-    params := url.Values{}
-    params.Add("client_id", client.credentials.Id)
-    params.Add("client_secret", client.credentials.Secret)
-    params.Add("code", code)
-    params.Add("grant_type", "authorization_code")
-    params.Add("redirect_uri", client.redirectURL)
-
-    // TODO: handle errrors
-    response, _ := http.PostForm(ACCESS_TOKEN_ENDPOINT, params)
-
-    body, _ := ioutil.ReadAll(response.Body)
-    fmt.Printf("%s\n", body) // DEBUG
-
-    var tokenResponse TokenResponse
-    json.Unmarshal(body, &tokenResponse)
-
-    client.tokenResponse = tokenResponse
-    return tokenResponse.AccessToken
-  }
-}
-
-// This is bad encapsulation. Should have a client.Save() method instead
-func (client SpotifyClient) GetTokenResponse() TokenResponse {
-  return client.tokenResponse
 }
 
 func (client SpotifyClient) refreshToken() string {
@@ -263,11 +244,7 @@ func (client SpotifyClient) GetTracksForPlaylist(userProfile UserProfileResponse
 }
 
 func (client SpotifyClient) makeRequest(request *http.Request) (*http.Response, error) {
-  httpClient := &http.Client{}
-  request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", client.tokenResponse.AccessToken))
-
-  // TODO: handle accessToken expiration error
-  response, err := httpClient.Do(request)
+  response, err := client.client.Do(request)
 
   return response, err
 }
