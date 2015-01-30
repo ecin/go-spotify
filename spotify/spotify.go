@@ -1,7 +1,7 @@
 package spotify
 
+// Standard libraries
 import (
-  "encoding/base64"
   "encoding/json"
   "fmt"
   "io/ioutil"
@@ -27,14 +27,6 @@ var Endpoint = oauth2.Endpoint{
 type SpotifyClient struct {
   credentials Credentials
   client *http.Client
-}
-
-// TODO: verify these properties need to be public
-type TokenResponse struct {
-  AccessToken string `json:"access_token"`
-  ExpiresIn int64 `json:"expires_in"`
-  RefreshToken string `json:"refresh_token"`
-  TokenType string `json:"token_type"`
 }
 
 type Playlist struct {
@@ -90,13 +82,6 @@ type Credentials struct {
   Secret string
 }
 
-func (credentials Credentials) getSignature() string {
-   data := []byte(fmt.Sprintf("%s:%s", credentials.Id, credentials.Secret))
-   signature := base64.URLEncoding.EncodeToString(data)
-
-   return signature
-}
-
 func AuthorizationURL(credentials Credentials, redirectURL string, scopes []string, state string) string {
   config := oauth2.Config{
     ClientID: credentials.Id,
@@ -107,20 +92,9 @@ func AuthorizationURL(credentials Credentials, redirectURL string, scopes []stri
   }
 
   return config.AuthCodeURL(state, oauth2.AccessTypeOffline)
-/*
-  // TODO: use state parameter by returning two strings
-  // https://developer.spotify.com/web-api/authorization-guide/
-  params := url.Values{}
-  params.Add("client_id", credentials.Id)
-  params.Add("response_type", "code")
-  params.Add("scope", strings.Join(scopes, " "))
-  params.Add("redirect_uri", redirectURL)
-
-  return fmt.Sprintf("%s?%s", AUTHORIZATION_ENDPOINT, params.Encode())
-*/
 }
 
-func NewSpotifyClientWithCode(credentials Credentials, redirectURL string, code string) (*SpotifyClient, error) {
+func NewSpotifyClientWithCode(credentials Credentials, redirectURL string, code string) (SpotifyClient, error) {
   config := oauth2.Config{
     ClientID: credentials.Id,
     ClientSecret: credentials.Secret,
@@ -131,17 +105,10 @@ func NewSpotifyClientWithCode(credentials Credentials, redirectURL string, code 
   token, err := config.Exchange(oauth2.NoContext, code)
 
   if err != nil {
-    return nil, err
+    return SpotifyClient{}, err
   }
 
-  fmt.Printf("TOKEN TOKEN TOKEN\n")
-  fmt.Printf("%q", token)
-
-  client := &SpotifyClient{
-    credentials: credentials,
-    client: config.Client(oauth2.NoContext, token),
-  }
-
+  client := NewSpotifyClientWithToken(credentials, token)
   return client, nil
 }
 
@@ -157,58 +124,53 @@ func NewSpotifyClientWithToken(credentials Credentials, token *oauth2.Token) Spo
     client: config.Client(oauth2.NoContext, token),
   }
 
-  fmt.Printf("OAUTH TOKEN: %q\n", token)
-
   return client
 }
 
-func (client SpotifyClient) refreshToken() string {
-  //params := url.Values{}
-  //params.Add("grant_type", "refresh_token")
-  //params.Add("refresh_token", client.tokenResponse.RefreshToken)
-  //params.Add("client_id", client.credentials.id)
-  //params.Add("client_secret", client.credentials.secret)
+func (client SpotifyClient) GetUserProfile() (UserProfileResponse, error) {
+  request, err := http.NewRequest("GET", USER_PROFILE_ENDPOINT, nil)
 
-  //fmt.Printf("TokenResponse: %v\n", client.tokenResponse)
+  if err != nil {
+    return UserProfileResponse{}, err
+  }
 
-  //httpClient := &http.Client{}
-  //request, _ := http.NewRequest("POST", ACCESS_TOKEN_ENDPOINT, nil)
-  ////request.Header.Add("Authorization", fmt.Sprintf("Basic %s", client.credentials.getSignature()))
+  response, err := client.makeRequest(request)
 
-  //response, _ := httpClient.Do(request)
-  //body, _ := ioutil.ReadAll(response.Body)
+  if err != nil {
+    return UserProfileResponse{}, err
+  }
 
-  //fmt.Printf("refreshToken():\n%s\n", body)
+  body, err := ioutil.ReadAll(response.Body)
 
-  //var tokenResponse TokenResponse
-  //json.Unmarshal(body, &tokenResponse)
-
-  //client.tokenResponse = tokenResponse
-  //return tokenResponse.AccessToken
-  return ""
-}
-
-func (client SpotifyClient) GetUserProfile() UserProfileResponse {
-  request, _ := http.NewRequest("GET", USER_PROFILE_ENDPOINT, nil)
-  response, _ := client.makeRequest(request)
-
-  body, _ := ioutil.ReadAll(response.Body)
-  fmt.Printf("%s\n", body)
+  if err != nil {
+    return UserProfileResponse{}, err
+  }
 
   var userProfileResponse UserProfileResponse
   json.Unmarshal(body, &userProfileResponse)
 
-  return userProfileResponse
+  return userProfileResponse, nil
 }
 
-func (client SpotifyClient) GetPlaylists(userProfile UserProfileResponse) []Playlist {
+func (client SpotifyClient) GetPlaylists(userProfile UserProfileResponse) ([]Playlist, error) {
   endpoint := fmt.Sprintf(PLAYLISTS_ENDPOINT, userProfile.Id)
-  request, _ := http.NewRequest("GET", endpoint, nil)
+  request, err := http.NewRequest("GET", endpoint, nil)
 
-  response, _ := client.makeRequest(request)
+  if err != nil {
+    return []Playlist{}, err
+  }
 
-  body, _ := ioutil.ReadAll(response.Body)
-  fmt.Printf("%s\n", body)
+  response, err := client.makeRequest(request)
+
+  if err != nil {
+    return []Playlist{}, err
+  }
+
+  body, err := ioutil.ReadAll(response.Body)
+
+  if err != nil {
+    return []Playlist{}, err
+  }
 
   var playlistsResponse PlaylistsResponse
   json.Unmarshal(body, &playlistsResponse)
@@ -217,17 +179,28 @@ func (client SpotifyClient) GetPlaylists(userProfile UserProfileResponse) []Play
     playlist.User = &userProfile
   }
 
-  return playlistsResponse.Playlists
+  return playlistsResponse.Playlists, nil
 }
 
-func (client SpotifyClient) GetTracksForPlaylist(userProfile UserProfileResponse, playlist Playlist) []Track {
+func (client SpotifyClient) GetTracksForPlaylist(userProfile UserProfileResponse, playlist Playlist) ([]Track, error) {
   endpoint := fmt.Sprintf(PLAYLIST_TRACKS_ENDPOINT, userProfile.Id, playlist.Id)
-  request, _ := http.NewRequest("GET", endpoint, nil)
+  request, err := http.NewRequest("GET", endpoint, nil)
 
-  response, _ := client.makeRequest(request)
+  if err != nil {
+    return []Track{}, err
+  }
 
-  body, _ := ioutil.ReadAll(response.Body)
-  fmt.Printf("%s\n", body)
+  response, err := client.makeRequest(request)
+
+  if err != nil {
+    return []Track{}, err
+  }
+
+  body, err := ioutil.ReadAll(response.Body)
+
+  if err != nil {
+    return []Track{}, err
+  }
 
   var tracksResponse TracksResponse
   json.Unmarshal(body, &tracksResponse)
@@ -240,7 +213,7 @@ func (client SpotifyClient) GetTracksForPlaylist(userProfile UserProfileResponse
     tracks[index] = trackWrapper.Track
   }
 
-  return tracks
+  return tracks, nil
 }
 
 func (client SpotifyClient) makeRequest(request *http.Request) (*http.Response, error) {
