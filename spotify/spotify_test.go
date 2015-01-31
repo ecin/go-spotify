@@ -2,6 +2,7 @@ package spotify
 
 import (
   "fmt"
+  "os"
   "testing"
 )
 
@@ -10,36 +11,45 @@ import (
 )
 
 var client SpotifyClient
-var code string
 
-func setup() {
-    credentials := Credentials{"fdb47c4e089942a4b8f0ec82586bc0b7", "37e600e32d9347aab9b8f18ac70670b8"}
-    redirectURL := "http://localhost:8080"
+func setup() (err error) {
+  if client.Token != nil {
+    return
+  }
+
+  id := os.Getenv("SPOTIFY_ID")
+  secret := os.Getenv("SPOTIFY_SECRET")
+  credentials := Credentials{id, secret}
+  token := &oauth2.Token{
+    AccessToken: "BQDXahWIzeCQdqrQorQAh5v1GxZZwK4oi7z12qx11Iz6a1KN-xsLJUPksyKwcNAtfQ7SYPlKZCQNY_eGCKFEC_qI5-XjLcOPALm0fjAEA4hZgVSkcIWt8OAbEhA9i9cliZ3Ovm2-CT8hV-CXNbdwiCjuLRnSo2PssUmANAcZBPnSPUU7yD8QwVzJEOYhE3UXIoxrJY8H",
+    RefreshToken: "AQCGoqe5ZoB9_rlCtnBKabZvfPedxvgG8ldPpxjnoNDzsJ7LNprEAJMhJGgj-WIO1NPdyURQBvJKn15lCGSvSvB9Pq9BEFF_QnZAGJHpOFc015Le4BGqdXiFt_hp-j2BcBI",
+    TokenType: "Bearer",
+  }
+
+  client = NewSpotifyClientWithToken(credentials, token)
+  return
+
+
+  code := os.Getenv("SPOTIFY_OAUTH_CODE")
+  redirectURL := "http://localhost:8080"
+
+  if code == "" {
     scopes := []string{
       "playlist-modify-public",
       "user-read-private",
     }
 
     fmt.Printf("Get an authorization code: %s\n", AuthorizationURL(credentials, redirectURL, scopes, ""))
+    os.Exit(1)
+
     return
+  } else {
+    client, err = NewSpotifyClientWithCode(credentials, redirectURL, code)
+    fmt.Printf("Here's your token:\n")
+    fmt.Printf("%q", client.Token)
 
-    token := &oauth2.Token{
-      RefreshToken: "AQDyrREp_5sHhwbIi3HmM-BwCjWKDyU3I9n2LxBkXPcox6ERwNLRD5ZuKHYu2uKgRnpoABAyK1y3N4Z8hESON3v-HVUiSUtozZ9GFIGyBDpawOMAtcQgQ7uMnEeiofB33U0",
-      AccessToken: "BQBaWFcxbc2YHQvqAVshFHc5A-1KjDN3Hc9PwwlE5qX-43E1Lb_7_PwFec3ECP1W9AGanyVdv9tJ6y-EAYIR_8HCEpPfcnrLIuDvdseVcVZ-HBEz4scrt8rVxUH8OGa61B_o0PFx04_iF0cn1D9Sj3JMyCUvA9mm71zI0oO9ci4DuY1u8K2UvNZl6wkqQUpnHmE0bci_",
-      TokenType: "Bearer",
-    }
-
-    client = NewSpotifyClientWithToken(credentials, token)
-
-    code := "AQB1pSq2-gHFmHm8aDitKUaDX03VJRNsiw0sA-N90q4rQM2ehxYzWnFxB1f69hXBrSP1vLIna47qdNBZnP6uLx9Ey-J73ysnr0HO7Wi-V2SSg71xMaymd2CthWm8YFpMl-_InGrbj5LmVNo419N6JQubtX4vNy0p2D6vZHO_FfrRlmuoYHnsQCnX8bSgNiTLEHEW6hv-1lZjdNiUUYGLL0fHt7ir_Zan-XIGnZf2Ry3V_xX7alQ"
-    c, err := NewSpotifyClientWithCode(credentials, redirectURL, code)
-
-    if err != nil {
-      fmt.Print("ERROR ERROR ERROR\n")
-      fmt.Print("%q\n", err)
-    }
-
-    client = c
+    return
+  }
 }
 
 func TestGetPlaylists(t *testing.T) {
@@ -48,7 +58,8 @@ func TestGetPlaylists(t *testing.T) {
   userProfile, _ := client.GetUserProfile()
   playlists, _ := client.GetPlaylists(userProfile)
 
-  fmt.Printf("%v", playlists)
+  fmt.Println("Here are your playlists:")
+  fmt.Printf("%q\n\n", playlists)
 }
 
 func TestGetUserProfile(t *testing.T) {
@@ -56,7 +67,8 @@ func TestGetUserProfile(t *testing.T) {
 
   userProfile, _ := client.GetUserProfile()
 
-  fmt.Printf("%v", userProfile)
+  fmt.Println("Here is your user profile:")
+  fmt.Printf("%q\n\n", userProfile)
 }
 
 func TestGetTracksForPlaylist(t *testing.T) {
@@ -66,5 +78,6 @@ func TestGetTracksForPlaylist(t *testing.T) {
   playlists, _ := client.GetPlaylists(userProfile)
   tracks, _ := client.GetTracksForPlaylist(userProfile, playlists[0])
 
-  fmt.Printf("%v", tracks)
+  fmt.Println("Here are your tracks:")
+  fmt.Printf("%q\n\n", tracks)
 }

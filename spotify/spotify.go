@@ -27,6 +27,7 @@ var Endpoint = oauth2.Endpoint{
 type SpotifyClient struct {
   credentials Credentials
   client *http.Client
+  Token *oauth2.Token
 }
 
 type Playlist struct {
@@ -122,6 +123,7 @@ func NewSpotifyClientWithToken(credentials Credentials, token *oauth2.Token) Spo
   client := SpotifyClient{
     credentials: credentials,
     client: config.Client(oauth2.NoContext, token),
+    Token: token,
   }
 
   return client
