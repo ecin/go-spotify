@@ -1,0 +1,6 @@
+Client to Spotify's API.
+
+Methods currently available:
+- GetUserProfile()
+- GetPlaylists()
+- GetTracksForPlaylist()
